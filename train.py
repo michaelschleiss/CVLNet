@@ -11,6 +11,7 @@ import torchvision.utils
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.multiprocessing as mp
 from torchvision import transforms
 from dataLoader.DataLoad import load_data, load_train_data, load_test_grd_data, load_test_sat_data1
 from dataLoader.datasets import train_file, val_file, test_file
@@ -19,6 +20,8 @@ import torch.nn.functional as F
 
 
 import ssl
+import time
+import logging
 
 ssl._create_default_https_context = ssl._create_unverified_context  # for downloading pretrained VGG weights
 
@@ -35,8 +38,12 @@ import numpy as np
 import os
 import argparse
 
-from utils import gps2distance
+from utils import gps2distance, get_device, to_device
 from val import RankVal, RankTest1, parse_args, getSavePath
+
+DEVICE = get_device()
+logger = logging.getLogger(__name__)
+mp.set_sharing_strategy("file_system")
 
 
 def RankTrain(lr, args, save_path, writer):
@@ -44,20 +51,23 @@ def RankTrain(lr, args, save_path, writer):
     #     criterion = HER_TriLoss_OR_UnNorm()
     # else:
     criterion = loss_uncertainty(args.shift_range)
-    criterion.cuda()
+    criterion.to(DEVICE)
 
     get_similarity_fn = similarity_uncertainty(args.shift_range)  # for test , in cpu
+    get_similarity_fn.to(DEVICE)
 
     bestRankResult = 0.0  # current best, Siam-FCANET18
     # loop over the dataset multiple times
     for epoch in range(args.resume, args.epochs):
         net.train()
+        epoch_start = time.time()
+        last_log = epoch_start
 
         # base_lr = 0
         base_lr = lr
         base_lr = base_lr * ((1.0 - float(epoch) / 100.0) ** (1.0))
 
-        print(base_lr)
+        logger.info("lr: %.6f", base_lr)
 
         ###
         # optimizer = optim.SGD(net.parameters(), lr=base_lr, momentum=0.9, weight_decay=0.0005)
@@ -72,12 +82,12 @@ def RankTrain(lr, args, save_path, writer):
 
         loss_vec = []
 
-        print('batch_size:', mini_batch, '\n num of batches:', len(trainloader))
+        logger.info("batch_size: %d  num of batches: %d", mini_batch, len(trainloader))
 
         for Loop, TripletData in enumerate(trainloader, 0):
 
             sat_map, left_camera_k, right_camera_k, grd_left_imgs, grd_right_imgs, \
-            loc_shift_left, loc_shift_right, heading = [item.cuda() for item in TripletData[:-3]]
+            loc_shift_left, loc_shift_right, heading = to_device(TripletData[:-3], DEVICE)
 
             # For visualization
             # sat_map.requires_grad = True
@@ -90,7 +100,7 @@ def RankTrain(lr, args, save_path, writer):
 
             if args.debug:
                 file_name = TripletData[-1]
-                print(file_name)
+                logger.info("debug_file: %s", file_name)
                 out_dir = './visualize/'
                 if not os.path.exists(out_dir):
                     os.makedirs(out_dir)
@@ -155,40 +165,29 @@ def RankTrain(lr, args, save_path, writer):
             ### record the loss
             loss_vec.append(loss)
 
-            if Loop % 10 == 9:  # print every 2000 mini-batches
-                print('[%d, %5d] loss: %.3f' % (epoch, Loop, running_loss))
-                print('real positive distance 01: ', p_dist)
-                print('pred positive distance 01: ', n_dist)
+            if Loop % 10 == 9:  # print every 10 mini-batches
+                logger.info("epoch %d step %d loss %.3f", epoch, Loop, running_loss)
+                logger.info("real positive distance 01: %s", p_dist)
+                logger.info("pred positive distance 01: %s", n_dist)
+                now = time.time()
+                logger.info("step_time %.3fs  epoch_time %.1fs", now - last_log, now - epoch_start)
+                last_log = now
                 writer.add_scalar('training loss', torch.mean(torch.stack(loss_vec, dim=-1)),
                                   epoch * len(trainloader) + Loop)
-                # for b_idx in range(1):
-                #     writer.add_image(str(b_idx) + 'grd_left:' + TripletData[-1][b_idx], grd_left_imgs[b_idx, 0, :, :, :])
-                #     writer.add_image(str(b_idx) + 'sat_img:' + TripletData[-1][b_idx], sat_map[b_idx, :, :, :])
-                #     writer.add_image(str(b_idx) + 'grd_feat:' + TripletData[-1][b_idx], F.upsample(grd_global[b_idx:b_idx+1], (512, 512), mode='nearest')[0])
-                #     writer.add_image(str(b_idx) + 'sat_feat:' + TripletData[-1][b_idx],
-                #                  F.upsample(sat_global[b_idx:b_idx + 1], (512, 512), mode='nearest')[0])
-                #     writer.add_graph(net, inputs)
-                #     for name, param in net.state_dict().items():
-                #         writer.add_histogram(name, param)
+                if Loop % 200 == 199:
+                    left_img_grid = torchvision.utils.make_grid(grd_left_imgs[:, 0, :, :, :], normalize=True)
+                    sat_img_grid = torchvision.utils.make_grid(sat_map, normalize=True)
+                    grd_feat_grid = torchvision.utils.make_grid(F.interpolate(grd_global, (512, 512), mode='nearest'))
+                    sat_feat_grid = torchvision.utils.make_grid(F.interpolate(sat_global, (512, 512), mode='nearest'))
 
-                left_img_grid = torchvision.utils.make_grid(grd_left_imgs[:, 0, :, :, :], normalize=True)
-                sat_img_grid = torchvision.utils.make_grid(sat_map, normalize=True)
-                grd_feat_grid = torchvision.utils.make_grid(F.upsample(grd_global, (512, 512), mode='nearest'))
-                sat_feat_grid = torchvision.utils.make_grid(F.upsample(sat_global, (512, 512), mode='nearest'))
-
-                # ele_map_grid = torchvision.utils.make_grid(F.upsample(ele_map, (512, 512), mode='nearest'))
-
-                writer.add_image('grd_left_imgs', left_img_grid)
-                writer.add_image('sat_images', sat_img_grid)
-                writer.add_image('grd_feature', grd_feat_grid)
-                writer.add_image('sat_feature', sat_feat_grid)
-                # writer.add_image('ele_map', ele_map_grid)
-                # for b_idx in range(mini_batch):
-                #     writer.add_text('file_name' + str(b_idx), TripletData[-1][b_idx])
+                    writer.add_image('grd_left_imgs', left_img_grid)
+                    writer.add_image('sat_images', sat_img_grid)
+                    writer.add_image('grd_feature', grd_feat_grid)
+                    writer.add_image('sat_feature', sat_feat_grid)
 
         ### save modelget_similarity_fn
         compNum = epoch % 100
-        print('taking snapshot ...')
+        logger.info("taking snapshot ...")
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         if 0:
@@ -207,7 +206,7 @@ def RankTrain(lr, args, save_path, writer):
         RankVal(epoch, net, get_similarity_fn, args, save_path, 0.)
         RankTest1(epoch, net, get_similarity_fn, args, save_path, 0.)
 
-    print('Finished Training')
+    logger.info("Finished Training")
 
 
 
@@ -222,6 +221,17 @@ if __name__ == '__main__':
     mini_batch = args.batch_size
 
     restore_path, save_path = getSavePath(args)
+
+    os.makedirs(save_path, exist_ok=True)
+    log_path = os.path.join(save_path, 'train.log')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_path),
+            logging.StreamHandler(),
+        ],
+    )
 
     writer = SummaryWriter(save_path)
 
@@ -255,7 +265,7 @@ if __name__ == '__main__':
                             proj=args.proj)
 
     ### cudaargs.epochs, args.debug)
-    net.cuda()
+    net.to(DEVICE)
     ###########################
 
     if args.test:
@@ -270,7 +280,7 @@ if __name__ == '__main__':
             # net.load_state_dict(torch.load(os.path.join(save_path, 'model_0.pth')))
 
             net.load_state_dict(torch.load(os.path.join(save_path, 'model_' + str(args.resume - 1) + '.pth')))
-            print("resume from " + 'model_' + str(args.resume - 1) + '.pth')
+            logger.info("resume from model_%d.pth", args.resume - 1)
             lr = args.lr
             # start_epoch = args.resume
 
@@ -284,7 +294,7 @@ if __name__ == '__main__':
                 net.load_state_dict(state_dict, strict=False)
 
                 # net.load_state_dict(torch.load(os.path.join(restore_path, 'Model_best.pth')), strict=False)
-                print('load model from ', os.path.join(restore_path, 'Model_best.pth'))
+                logger.info("load model from %s", os.path.join(restore_path, 'Model_best.pth'))
 
             if args.stage == 1:
                 for param in net.SatFeatureNet.parameters():
@@ -317,4 +327,3 @@ if __name__ == '__main__':
         RankTrain(lr, args, save_path, writer)
         writer.flush()
         writer.close()
-

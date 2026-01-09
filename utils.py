@@ -6,6 +6,7 @@ Created on Sun Dec  6 16:14:01 2020
 """
 import numpy as np
 import torch
+import os
 
 CameraGPS_shift = [1.08, 0.26]
 Satmap_zoom = 18
@@ -18,6 +19,29 @@ Default_lat = 49.015
 
 CameraGPS_shift_left = [1.08, 0.26]
 CameraGPS_shift_right = [1.08, 0.8]  # 0.26 + 0.54
+
+def get_device():
+    override = os.environ.get("CVLNET_DEVICE")
+    if override:
+        return torch.device(override)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def to_device(items, device):
+    out = []
+    for item in items:
+        if torch.is_tensor(item):
+            # MPS does not support float64 tensors; cast to float32 for safety.
+            if device.type == "mps" and item.dtype == torch.float64:
+                item = item.float()
+            out.append(item.to(device))
+        else:
+            out.append(item)
+    return out
 
 
 
@@ -233,6 +257,3 @@ def features_to_RGB(Fs, skip=1):
         Fs.append(F)
     assert flatten.shape[0] == 0
     return Fs
-
-
-

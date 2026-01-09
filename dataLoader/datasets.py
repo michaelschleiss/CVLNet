@@ -7,7 +7,7 @@ import torch
 import pandas as pd
 import utils
 
-root_dir = '/media/yujiao/6TB/dataset/Kitti1' # '../../data/Kitti' # '../Data' #'..\\Data' #
+root_dir = '/Volumes/Datengrab/german-cvl/kitti'
 
 test_csv_file_name = 'test.csv'
 ignore_csv_file_name = 'ignore.csv'
@@ -21,14 +21,19 @@ GrdImg_H = 256  # 256 # original: 375 #224, 256
 GrdImg_W = 1024  # 1024 # original:1242 #1248, 1024
 GrdOriImg_H = 375
 GrdOriImg_W = 1242
-num_thread_workers = 1
+num_thread_workers = 0
 
+_BASE_DIR = os.path.dirname(__file__)
 # train_file = './dataLoader/train_files.txt'
-train_file = './dataLoader/train_files_with_sat_GPS.txt'
-test_file = './dataLoader/test2_files_with_sat_GPS.txt'
-val_file = './dataLoader/test1_files_with_sat_GPS.txt'
+train_file = os.path.join(_BASE_DIR, 'train_files_with_sat_GPS.txt')
+test_file = os.path.join(_BASE_DIR, 'test2_files_with_sat_GPS.txt')
+val_file = os.path.join(_BASE_DIR, 'test1_files_with_sat_GPS.txt')
 
 semantic_dir = 'semantics'
+
+
+def _float_tensor(value):
+    return torch.from_numpy(np.asarray(value, dtype=np.float32))
 
 class SatGrdDataset(Dataset):
     def __init__(self, root, file_name, stereo=False, sequence=False,
@@ -49,12 +54,12 @@ class SatGrdDataset(Dataset):
         else:
             self.pro_grdimage_dir = 'raw_data'
 
-        # self.satmap_dir = satmap_dir
+        self.satmap_dir = satmap_dir
 
         if use_polar_sat:
             self.satmap_dir = 'satmap_polar/train_10mgap'
         else:
-            self.satmap_dir += '/train_10mgap'
+            self.satmap_dir = os.path.join(self.satmap_dir, 'train_10mgap')
 
 
         with open(file_name, 'r') as f:
@@ -64,14 +69,17 @@ class SatGrdDataset(Dataset):
 
         self.semantic_dir = semantic_dir
 
-        self.file_name = []
-        for file in file_name:
-            new_file = os.path.join(root, semantic_dir, '2011' + file.strip().split(' ')[0].split('/2011')[1])
-            if not os.path.exists(new_file):
-                print('File not exists: ', new_file)
-                continue
-            else:
-                self.file_name.append(file.strip())
+        if use_semantic:
+            self.file_name = []
+            for file in file_name:
+                new_file = os.path.join(root, semantic_dir, '2011' + file.strip().split(' ')[0].split('/2011')[1])
+                if not os.path.exists(new_file):
+                    print('File not exists: ', new_file)
+                    continue
+                else:
+                    self.file_name.append(file.strip())
+        else:
+            self.file_name = [file.strip() for file in file_name if file.strip()]
 
         self.use_semantic = use_semantic
 
@@ -92,7 +100,7 @@ class SatGrdDataset(Dataset):
         image_no = file_name[38:]
 
         sat_x, sat_y = utils.gps2utm(float(sat_lat), float(sat_lon))
-        loc_sat = torch.tensor(np.array([sat_x, sat_y]))
+        loc_sat = _float_tensor([sat_x, sat_y])
 
         # =================== read file names within one sequence =====================
         sequence_list = []
@@ -132,7 +140,7 @@ class SatGrdDataset(Dataset):
                     fy = float(valus[5]) * GrdImg_H / GrdOriImg_H
                     cy = float(valus[6]) * GrdImg_H / GrdOriImg_H
                     left_camera_k = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
-                    left_camera_k = torch.from_numpy(np.asarray(left_camera_k))
+                    left_camera_k = _float_tensor(left_camera_k)
                     if not self.stereo:
                         break
 
@@ -147,7 +155,7 @@ class SatGrdDataset(Dataset):
                         fy = float(valus[5]) * GrdImg_H / GrdOriImg_H
                         cy = float(valus[6]) * GrdImg_H / GrdOriImg_H
                         right_camera_k = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
-                        right_camera_k = torch.from_numpy(np.asarray(right_camera_k))
+                        right_camera_k = _float_tensor(right_camera_k)
                         break
                 else:
                     right_camera_k = torch.tensor([])
@@ -216,10 +224,10 @@ class SatGrdDataset(Dataset):
                 right_x = utm_x + delta_right_x
                 right_y = utm_y + delta_right_y
 
-                loc_left = torch.from_numpy(np.asarray([left_x, left_y]))
-                loc_right = torch.from_numpy(np.asarray([right_x, right_y]))
-                heading = torch.from_numpy(np.asarray(heading))
-                latlon = torch.from_numpy(np.asarray([float(content[0]), float(content[1])]))
+                loc_left = _float_tensor([left_x, left_y])
+                loc_right = _float_tensor([right_x, right_y])
+                heading = _float_tensor(heading)
+                latlon = _float_tensor([float(content[0]), float(content[1])])
 
                 # ground images, left color camera
                 left_img_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, left_color_camera_dir,
@@ -322,14 +330,17 @@ class GrdDataset(Dataset):
         # self.file_name = [file[:-1] for file in file_name]
         self.semantic_dir = semantic_dir
 
-        self.file_name = []
-        for file in file_name:
-            new_file = os.path.join(root, semantic_dir, '2011' + file.strip().split(' ')[0].split('/2011')[1])
-            if not os.path.exists(new_file):
-                print('File not exists: ', new_file)
-                continue
-            else:
-                self.file_name.append(file.strip())
+        if use_semantic:
+            self.file_name = []
+            for file in file_name:
+                new_file = os.path.join(root, semantic_dir, '2011' + file.strip().split(' ')[0].split('/2011')[1])
+                if not os.path.exists(new_file):
+                    print('File not exists: ', new_file)
+                    continue
+                else:
+                    self.file_name.append(file.strip())
+        else:
+            self.file_name = [file.strip() for file in file_name if file.strip()]
 
         self.use_semantic = use_semantic
 
@@ -387,7 +398,7 @@ class GrdDataset(Dataset):
                     fy = float(valus[5]) * GrdImg_H / GrdOriImg_H
                     cy = float(valus[6]) * GrdImg_H / GrdOriImg_H
                     left_camera_k = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
-                    left_camera_k = torch.from_numpy(np.asarray(left_camera_k))
+                    left_camera_k = _float_tensor(left_camera_k)
                     if not self.stereo:
                         break
 
@@ -402,7 +413,7 @@ class GrdDataset(Dataset):
                         fy = float(valus[5]) * GrdImg_H / GrdOriImg_H
                         cy = float(valus[6]) * GrdImg_H / GrdOriImg_H
                         right_camera_k = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
-                        right_camera_k = torch.from_numpy(np.asarray(right_camera_k))
+                        right_camera_k = _float_tensor(right_camera_k)
                         break
                 else:
                     right_camera_k = torch.tensor([])
@@ -467,10 +478,10 @@ class GrdDataset(Dataset):
                 right_x = utm_x + delta_right_x
                 right_y = utm_y + delta_right_y
 
-                loc_left = torch.from_numpy(np.asarray([left_x, left_y]))
-                loc_right = torch.from_numpy(np.asarray([right_x, right_y]))
-                heading = torch.from_numpy(np.asarray(heading))
-                latlon = torch.from_numpy(np.asarray([float(content[0]), float(content[1])]))
+                loc_left = _float_tensor([left_x, left_y])
+                loc_right = _float_tensor([right_x, right_y])
+                heading = _float_tensor(heading)
+                latlon = _float_tensor([float(content[0]), float(content[1])])
 
                 # ground images, left color camera
                 left_img_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, left_color_camera_dir,
@@ -591,7 +602,7 @@ class SatDataset1(Dataset):  # without distractor, each satellite image correspo
         sat_lat, sat_lon = os.path.basename(SatMap_name).split('.png')[0].split('_')
 
         sat_x, sat_y = utils.gps2utm(float(sat_lat), float(sat_lon))
-        loc_sat = torch.tensor(np.array([sat_x, sat_y]))
+        loc_sat = _float_tensor([sat_x, sat_y])
 
         # =================== read satellite map ===================================
 
@@ -674,7 +685,7 @@ class SatDataset2(Dataset):  # with distractor, there are many satellite images 
         # latlon = [float(gps[0]), float(gps[1].strip('.png'))]
         # latlon = torch.from_numpy(np.asarray(latlon))
         utm_x, utm_y = utils.gps2utm(float(gps[0]), float(gps[1].strip('.png')))
-        location = torch.from_numpy(np.asarray([utm_x, utm_y]))
+        location = _float_tensor([utm_x, utm_y])
 
         # get satmap image
         SatMap_name = os.path.join(self.root, self.test_sat_dir, file_name)
@@ -722,6 +733,7 @@ class DistanceBatchSampler:
     def __iter__(self):
         batch = []
         location_list = torch.tensor([])
+        skipped_missing_oxts = 0
 
         for idx in self.sampler:
             # check the idx gps location, not less than required distance
@@ -733,21 +745,30 @@ class DistanceBatchSampler:
             # oxt: such as 0000000000.txt
             oxts_file_name = os.path.join(root_dir, grdimage_dir, drive_dir, oxts_dir,
                                           image_no.lower().replace('.png', '.txt'))
-            with open(oxts_file_name, 'r') as f:
-                content = f.readline().split(' ')
+            if not os.path.exists(oxts_file_name):
+                # Skip samples missing OXTS data (incomplete raw syncs).
+                skipped_missing_oxts += 1
+                continue
+            try:
+                with open(oxts_file_name, 'r') as f:
+                    content = f.readline().split(' ')
+            except FileNotFoundError:
+                # Guard against race/permission edge cases on external volumes.
+                skipped_missing_oxts += 1
+                continue
 
-                # get location
-                cur_location = [float(content[0]), float(content[1])]
-                cur_location = torch.from_numpy(np.asarray(cur_location))
+            # get location
+            cur_location = [float(content[0]), float(content[1])]
+            cur_location = _float_tensor(cur_location)
 
-                if self.check_add(cur_location, location_list):
-                    # add to batch
-                    batch.append(idx)
-                    location_list = torch.cat([location_list, cur_location.unsqueeze(0)], dim=0)
-                else:
-                    # add to back up
-                    self.backup.append(idx)
-                    self.backup_location = torch.cat([self.backup_location, cur_location.unsqueeze(0)], dim=0)
+            if self.check_add(cur_location, location_list):
+                # add to batch
+                batch.append(idx)
+                location_list = torch.cat([location_list, cur_location.unsqueeze(0)], dim=0)
+            else:
+                # add to back up
+                self.backup.append(idx)
+                self.backup_location = torch.cat([self.backup_location, cur_location.unsqueeze(0)], dim=0)
 
             if len(batch) == self.batch_size:
                 yield batch
@@ -780,6 +801,8 @@ class DistanceBatchSampler:
         if len(batch) > 0 and not self.drop_last:
             yield batch
             print('batched all, left in backup:', len(self.backup), self.backup_location.size())
+        if skipped_missing_oxts > 0:
+            print(f"Skipped {skipped_missing_oxts} samples due to missing OXTS")
 
     def __len__(self):
         # Can only be called if self.sampler has __len__ implemented
@@ -790,5 +813,3 @@ class DistanceBatchSampler:
             return len(self.sampler) // self.batch_size  # type: ignore
         else:
             return (len(self.sampler) + self.batch_size - 1) // self.batch_size  # type: ignore
-
-

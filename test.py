@@ -23,13 +23,16 @@ import numpy as np
 import scipy.io as scio
 import time
 
+from utils import get_device, to_device
+
+DEVICE = get_device()
 
 
 
 ########################### ranking test ############################
 def RankTest(net_test, args, sat_batch, sequence, test_wo_destractors=True):
     get_similarity_fn = similarity_uncertainty(args.shift_range)  # HER_TriLoss_OR_UnNorm() partical_similarity_loss()
-    get_similarity_fn.cuda()
+    get_similarity_fn.to(DEVICE)
     print(">>>>>>>>>>>>>>>>>>> test_two_destractors: ",test_wo_destractors )
     print(">>>>>>>> args.use_project_grd: ",args.project_grd)
     grdloader = load_test_grd_data(mini_batch, args.stereo, sequence,
@@ -60,7 +63,7 @@ def RankTest(net_test, args, sat_batch, sequence, test_wo_destractors=True):
 
     for i, data in enumerate(grdloader, 0):
         left_camera_k, right_camera_k, grd_left_imgs, grd_right_imgs, \
-        loc_shift_left, loc_shift_right, heading, loc_left = [item.cuda() for item in data[:-1]]
+        loc_shift_left, loc_shift_right, heading, loc_left = to_device(data[:-1], DEVICE)
 
         outputs_query, _, _ = net_test.forward(None, left_camera_k, right_camera_k,
                                                grd_left_imgs, grd_right_imgs, loc_shift_left,
@@ -87,7 +90,7 @@ def RankTest(net_test, args, sat_batch, sequence, test_wo_destractors=True):
         for i, data in enumerate(satloader1, 0):
             sat_map, loc_sat = data
             sat_location_vec1 = torch.cat([sat_location_vec1, loc_sat], dim=0)  # [count,2]
-            sat_map = sat_map.cuda()
+            sat_map = sat_map.to(DEVICE)
             _, outputs_sat_vec1, uncertainty = net_test.forward(sat_map, None, None, None, None, None, None, None)
             ###### feature vector feeding
             sat_vec1 = torch.cat([sat_vec1, outputs_sat_vec1.data.cpu()], dim=0)
@@ -99,7 +102,7 @@ def RankTest(net_test, args, sat_batch, sequence, test_wo_destractors=True):
     for i, data in enumerate(satloader2, 0):
         sat_map, loc_sat = data
         sat_location_vec2 = torch.cat([sat_location_vec2, loc_sat], dim=0)  # [count,2]
-        sat_map = sat_map.cuda()
+        sat_map = sat_map.to(DEVICE)
         _, outputs_sat_vec2, uncertainty = net_test.forward(sat_map, None, None, None, None, None, None, None)
         ###### feature vector feeding
         sat_vec2 = torch.cat([sat_vec2, outputs_sat_vec2.data.cpu()], dim=0)
@@ -132,10 +135,10 @@ def RankTest(net_test, args, sat_batch, sequence, test_wo_destractors=True):
             for j in range(int(np.ceil(M_data / batch))):
                 start_j = j * batch
                 end_j = start_j + min(batch, M_data + 1 - start_j)
-                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].cuda(),
-                                                             sat_vec1[start_j:end_j].cuda(),
+                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].to(DEVICE),
+                                                             sat_vec1[start_j:end_j].to(DEVICE),
                                                              uncertainty_vec1[
-                                                             start_j: end_j].cuda())  # ,test_method)
+                                                             start_j: end_j].to(DEVICE))  # ,test_method)
                 similarity_sat_matrix = torch.cat([similarity_sat_matrix, similarity.cpu()], dim=0)
                 shift_meters_sat_matrix = torch.cat([shift_meters_sat_matrix, shift_meters.cpu()], dim=0)
             similarity_matrix = torch.cat([similarity_matrix, similarity_sat_matrix], dim=1)
@@ -216,9 +219,9 @@ def RankTest(net_test, args, sat_batch, sequence, test_wo_destractors=True):
         for j in range(int(np.ceil(M_data / batch))):
             start_j = j * batch
             end_j = start_j + min(batch, M_data + 1 - start_j)
-            similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].cuda(),
-                                                         sat_vec2[start_j:end_j].cuda(),
-                                                         uncertainty_vec2[start_j: end_j].cuda())  # ,test_method)
+            similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].to(DEVICE),
+                                                         sat_vec2[start_j:end_j].to(DEVICE),
+                                                         uncertainty_vec2[start_j: end_j].to(DEVICE))  # ,test_method)
             similarity_sat_matrix = torch.cat([similarity_sat_matrix, similarity.cpu()], dim=0)
             shift_meters_sat_matrix = torch.cat([shift_meters_sat_matrix, shift_meters.cpu()], dim=0)
         similarity_matrix = torch.cat([similarity_matrix, similarity_sat_matrix], dim=1)
@@ -309,7 +312,7 @@ if __name__ == '__main__':
                            shift_range=args.shift_range,
                            proj=args.proj)
 
-        net.cuda()
+        net.to(DEVICE)
 
         net.load_state_dict(torch.load(os.path.join(save_path, 'Model_best.pth')))
         print("restore finished")
@@ -330,7 +333,7 @@ if __name__ == '__main__':
                             # height_sample=args.height_sample,
                             shift_range=args.shift_range)
 
-            net.cuda()
+            net.to(DEVICE)
 
             # net.load_state_dict(torch.load(os.path.join(save_path, 'Model_best.pth')), strict=False)
             net.load_state_dict(torch.load(os.path.join(save_path, 'Model_best.pth')), strict=False)
@@ -347,11 +350,10 @@ if __name__ == '__main__':
                                 seq_order=args.seq_order,
                                 # height_sample=args.height_sample,
                                 shift_range=args.shift_range)
-                net.cuda()
+                net.to(DEVICE)
 
                 net.load_state_dict(torch.load(os.path.join(save_path, 'Model_best.pth')), strict=False)
                 print("restore finished")
 
                 RankTest(net, args, batch_count, sequence, False)
-
 

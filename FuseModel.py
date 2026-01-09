@@ -157,26 +157,29 @@ class FuseModel(nn.Module):
         # Running the forward pass with detection enabled will allow the backward pass to print the traceback of the forward operation that created the failing backward function.
         # Any backward computation that generate “nan” value will raise an error.
 
+    def _device(self):
+        return next(self.parameters()).device
+
     def get_warp_sat2real(self, satmap_sidelength, min_height=0, max_height=8):
         # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
         # realword: X: south, Y:down, Z: east   origin is set to the ground plane
 
         # meshgrid the sat pannel
-        i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
-        ii, jj = torch.meshgrid(i, j)  # i:h,j:w
+        device = self._device()
+        i = j = torch.arange(0, satmap_sidelength, device=device)  # to(self.device)
+        ii, jj = torch.meshgrid(i, j, indexing='ij')  # i:h,j:w
 
         # uv is coordinate from top/left, v: south, u:east
         uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
 
         # sat map from top/left to center coordinate
         u0 = v0 = satmap_sidelength // 2
-        uv_center = uv - torch.tensor(
-            [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+        uv_center = uv - torch.tensor([u0, v0], device=device)  # shape = [satmap_sidelength, satmap_sidelength, 2]
 
         # affine matrix: scale*R
         meter_per_pixel = utils.get_meter_per_pixel()
         meter_per_pixel *= utils.get_process_satmap_sidelength() / self.feature_win
-        R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+        R = torch.tensor([[0, 1], [1, 0]], dtype=torch.float32, device=device)  # u_center->z, v_center->x
         Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
 
         # Trans matrix from sat to realword
@@ -256,17 +259,22 @@ class FuseModel(nn.Module):
         uv = self.seq_warp_real2camera(XYZ_1, heading, camera_k, shift)  # [B, S, E, H, W,2]
 
         # normalize to [-1, 1] for F.grid_sample
-        uv_center = uv - torch.tensor([W // 2, H // 2]).cuda()  # shape = [B, S, E, H, W,2]
+        device = uv.device
+        uv_center = uv - torch.tensor([W // 2, H // 2], device=device)  # shape = [B, S, E, H, W,2]
         # u:north, v: up from center to -1,-1 top left, 1,1 buttom rightVisibility_elevation_fuse
-        scale = torch.tensor([W // 2, H // 2]).cuda()
+        scale = torch.tensor([W // 2, H // 2], device=device)
         uv_center /= scale
 
         # expand grd_f to [B, S, E, C, H, W]
         E = uv.size()[2]
         grd_f = grd_f.unsqueeze(2).repeat(1, 1, E, 1, 1, 1)
-        grd_f_trans = F.grid_sample(grd_f.reshape(-1, C, H, W),
-                                    uv_center.reshape(-1, satmap_sidelength, satmap_sidelength, 2), mode='bilinear',
-                                    padding_mode='zeros')  # [B*S*E,C,sidelength,sidelength]
+        grd_f_trans = F.grid_sample(
+            grd_f.reshape(-1, C, H, W),
+            uv_center.reshape(-1, satmap_sidelength, satmap_sidelength, 2),
+            mode='bilinear',
+            padding_mode='zeros',
+            align_corners=False,
+        )  # [B*S*E,C,sidelength,sidelength]
         grd_f_trans = grd_f_trans.view(B, S, E, C, satmap_sidelength, satmap_sidelength)
 
         return grd_f_trans
@@ -400,6 +408,4 @@ class FuseModel(nn.Module):
 
 
         return grd_feature, sat_feature, uncertainty
-
-
 

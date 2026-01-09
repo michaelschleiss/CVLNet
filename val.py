@@ -33,8 +33,10 @@ import numpy as np
 import os
 import argparse
 
-from utils import gps2distance
+from utils import gps2distance, get_device, to_device
 # from train import
+
+DEVICE = get_device()
 
 ########################### ranking test ############################
 def RankTest1(epoch, net_test, get_similarity_fn, args, save_path, best_rank_result):
@@ -58,7 +60,7 @@ def RankTest1(epoch, net_test, get_similarity_fn, args, save_path, best_rank_res
 
     for i, data in enumerate(grdloader, 0):
         left_camera_k, right_camera_k, grd_left_imgs, grd_right_imgs, \
-        loc_shift_left, loc_shift_right, heading, loc_left = [item.cuda() for item in data[:-1]]
+        loc_shift_left, loc_shift_right, heading, loc_left = to_device(data[:-1], DEVICE)
 
         outputs_query, _, _ = net_test.forward(None, left_camera_k, right_camera_k,
                                                grd_left_imgs, grd_right_imgs, loc_shift_left,
@@ -77,7 +79,7 @@ def RankTest1(epoch, net_test, get_similarity_fn, args, save_path, best_rank_res
 
         sat_location_vec1 = torch.cat([sat_location_vec1, loc_sat], dim=0)  # [count,2]
 
-        sat_map = sat_map.cuda()
+        sat_map = sat_map.to(DEVICE)
 
         _, outputs_sat_vec1, uncertainty = net_test.forward(sat_map, None, None, None, None, None, None, None,
                                                attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)
@@ -104,12 +106,12 @@ def RankTest1(epoch, net_test, get_similarity_fn, args, save_path, best_rank_res
             start_j = j * batch
             end_j = start_j + min(batch, M_data + 1 - start_j)
             if args.uncertainty:
-                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].cuda(),
-                                                             sat_vec1[start_j:end_j].cuda(),
-                                                             uncertainty_vec1[start_j: end_j].cuda())
+                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].to(DEVICE),
+                                                             sat_vec1[start_j:end_j].to(DEVICE),
+                                                             uncertainty_vec1[start_j: end_j].to(DEVICE))
             else:
-                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].cuda(),
-                                                             sat_vec1[start_j:end_j].cuda())
+                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].to(DEVICE),
+                                                             sat_vec1[start_j:end_j].to(DEVICE))
             similarity_sat_matrix = torch.cat([similarity_sat_matrix, similarity.cpu()], dim=0)
             shift_meters_sat_matrix = torch.cat([shift_meters_sat_matrix, shift_meters.cpu()], dim=0)
         similarity_matrix = torch.cat([similarity_matrix, similarity_sat_matrix], dim=1)
@@ -121,12 +123,18 @@ def RankTest1(epoch, net_test, get_similarity_fn, args, save_path, best_rank_res
 
     dist_array = 2 - 2 * similarity_matrix
 
-    prediction_id = torch.topk(dist_array, 100, dim=0, largest=False, sorted=True)[1]  # [top_k, N]
+    max_k = min(100, dist_array.size(0))
+    if max_k == 0:
+        print("No satellite candidates available for evaluation.")
+        return
+    prediction_id = torch.topk(dist_array, max_k, dim=0, largest=False, sorted=True)[1]  # [top_k, N]
     print(prediction_id.shape)
 
     f = open(os.path.join(save_path, 'test1_results'), 'a')
     results = []
-    for topk in (1,5,10,100):
+    for topk in (1, 5, 10, 100):
+        if topk > max_k:
+            continue
         min_dis = None
 
         for j in range(topk):
@@ -195,7 +203,7 @@ def RankVal(epoch, net_test, get_similarity_fn, args, save_path, best_rank_resul
 
     for i, data in enumerate(valloader, 0):
         sat_map, left_camera_k, right_camera_k, grd_left_imgs, grd_right_imgs, \
-        loc_shift_left, loc_shift_right, heading, loc_left, loc_sat = [item.cuda() for item in data[:-1]]
+        loc_shift_left, loc_shift_right, heading, loc_left, loc_sat = to_device(data[:-1], DEVICE)
 
         # left_camera_k, right_camera_k, grd_left_imgs, grd_right_imgs, \
         # loc_shift_left, loc_shift_right, heading, loc_left = [item.cuda() for item in data[:-1]]
@@ -240,12 +248,12 @@ def RankVal(epoch, net_test, get_similarity_fn, args, save_path, best_rank_resul
             start_j = j * batch
             end_j = start_j + min(batch, M_data + 1 - start_j)
             if args.uncertainty:
-                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].cuda(),
-                                                             sat_vec1[start_j:end_j].cuda(),
-                                                             uncertainty_vec1[start_j: end_j].cuda())
+                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].to(DEVICE),
+                                                             sat_vec1[start_j:end_j].to(DEVICE),
+                                                             uncertainty_vec1[start_j: end_j].to(DEVICE))
             else:
-                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].cuda(),
-                                                             sat_vec1[start_j:end_j].cuda())
+                similarity, shift_meters = get_similarity_fn(query_vec[start_i:end_i].to(DEVICE),
+                                                             sat_vec1[start_j:end_j].to(DEVICE))
             similarity_sat_matrix = torch.cat([similarity_sat_matrix, similarity.cpu()], dim=0)
             shift_meters_sat_matrix = torch.cat([shift_meters_sat_matrix, shift_meters.cpu()], dim=0)
         similarity_matrix = torch.cat([similarity_matrix, similarity_sat_matrix], dim=1)
@@ -254,12 +262,18 @@ def RankVal(epoch, net_test, get_similarity_fn, args, save_path, best_rank_resul
 
     dist_array = 2 - 2 * similarity_matrix
 
-    prediction_id = torch.topk(dist_array, 100, dim=0, largest=False, sorted=True)[1]  # [top_k, N]
+    max_k = min(100, dist_array.size(0))
+    if max_k == 0:
+        print("No satellite candidates available for evaluation.")
+        return
+    prediction_id = torch.topk(dist_array, max_k, dim=0, largest=False, sorted=True)[1]  # [top_k, N]
     print(prediction_id.shape)
     min_dis = None
     f = open(os.path.join(save_path, 'val_results'), 'a')
     topk = 1
-    for topk in (1,5,10,100):
+    for topk in (1, 5, 10, 100):
+        if topk > max_k:
+            continue
         min_dis = None
         for j in range(topk):
             # grd_x, grd_y = gps2utm_torch(grd_location_vec[:, 0], grd_location_vec[:, 1]) # [N]
@@ -475,7 +489,7 @@ if __name__ == '__main__':
                         proj=args.proj)
 
     ### cudaargs.epochs, args.debug)
-    net.cuda()
+    net.to(DEVICE)
     ###########################
 
     # for epoch in range(0, 5):
@@ -490,5 +504,3 @@ if __name__ == '__main__':
     # it seems non-neccessary to define in cpu or gpu, as there is no torch parameter in the function
     # RankVal(0, net, get_similarity_fn, args, save_path, 0.)
     RankTest1(0, net, get_similarity_fn, args, save_path, 0.)
-
-
