@@ -269,7 +269,7 @@ if __name__ == '__main__':
     ###########################
 
     if args.test:
-        net.load_state_dict(torch.load(os.path.join(save_path, 'Model_best.pth')))
+        net.load_state_dict(torch.load(os.path.join(save_path, 'Model_best.pth'), map_location='cpu'))
         # net.load_state_dict(torch.load('./Models/sequence4_stereo0_fuse0_corrTrue_batch8_loss1_GRUdir2_GRUlayers1/stage_1/Model_best.pth'))
         get_similarity_fn = similarity_uncertainty(args.shift_range)  # for test , in cpu
         RankVal(net, get_similarity_fn, args, save_path, 0.)
@@ -279,7 +279,7 @@ if __name__ == '__main__':
         if args.resume:
             # net.load_state_dict(torch.load(os.path.join(save_path, 'model_0.pth')))
 
-            net.load_state_dict(torch.load(os.path.join(save_path, 'model_' + str(args.resume - 1) + '.pth')))
+            net.load_state_dict(torch.load(os.path.join(save_path, 'model_' + str(args.resume - 1) + '.pth'), map_location='cpu'))
             logger.info("resume from model_%d.pth", args.resume - 1)
             lr = args.lr
             # start_epoch = args.resume
@@ -287,7 +287,7 @@ if __name__ == '__main__':
         else:
 
             if restore_path:
-                save_dict = torch.load(os.path.join(restore_path, 'Model_best.pth'))
+                save_dict = torch.load(os.path.join(restore_path, 'Model_best.pth'), map_location='cpu')
                 net_dict = net.state_dict()
                 state_dict = {k: v for k, v in save_dict.items() if
                               k in net_dict.keys() and net_dict[k].size() == save_dict[k].size()}
