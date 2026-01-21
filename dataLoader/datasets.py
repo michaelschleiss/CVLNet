@@ -7,7 +7,7 @@ import torch
 import pandas as pd
 import utils
 
-root_dir = '/Volumes/Datengrab/german-cvl/kitti'
+root_dir = '/home/mschleiss/projects/german-cvl/data/kitti'
 
 test_csv_file_name = 'test.csv'
 ignore_csv_file_name = 'ignore.csv'
@@ -21,7 +21,7 @@ GrdImg_H = 256  # 256 # original: 375 #224, 256
 GrdImg_W = 1024  # 1024 # original:1242 #1248, 1024
 GrdOriImg_H = 375
 GrdOriImg_W = 1242
-num_thread_workers = 0
+num_thread_workers = 8  # Use 8 workers for parallel data loading
 
 _BASE_DIR = os.path.dirname(__file__)
 # train_file = './dataLoader/train_files.txt'

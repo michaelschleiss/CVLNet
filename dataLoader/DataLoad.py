@@ -45,7 +45,8 @@ def load_data(file, batch_size, stereo, sequence, shift_range=0,
     shift_meter = (shift_range * 2 + 1) * meter_per_pixel * 512 / 32
     file_name = train_set.get_file_list()
     bs = DistanceBatchSampler(torch.utils.data.RandomSampler(train_set), batch_size, True, shift_meter, file_name)
-    train_loader = DataLoader(train_set, batch_sampler=bs, num_workers=num_thread_workers)
+    train_loader = DataLoader(train_set, batch_sampler=bs, num_workers=num_thread_workers,
+                              pin_memory=True, persistent_workers=True if num_thread_workers > 0 else False)
     # else:
     #     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True,
     #                               num_workers=num_thread_workers, drop_last=False)
@@ -103,7 +104,8 @@ def load_train_data(batch_size, stereo, sequence, shift_range=0,
         shift_meter = (shift_range * 2 + 1) * meter_per_pixel * 512 / 32
         file_name = train_set.get_file_list()
         bs = DistanceBatchSampler(torch.utils.data.RandomSampler(train_set), batch_size, True, shift_meter, file_name)
-        train_loader = DataLoader(train_set, batch_sampler=bs, num_workers=num_thread_workers)
+        train_loader = DataLoader(train_set, batch_sampler=bs, num_workers=num_thread_workers,
+                              pin_memory=True, persistent_workers=True if num_thread_workers > 0 else False)
     else:
         train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True,
                                   num_workers=num_thread_workers, drop_last=False)
