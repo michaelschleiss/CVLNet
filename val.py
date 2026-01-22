@@ -317,22 +317,36 @@ def RankVal(epoch, net_test, get_similarity_fn, args, save_path, best_rank_resul
         print('top-' + str(topk) + ' within 10, 15, 20, and 25 meters: ' + line)
         f.write('top-' + str(topk) + ' within 10, 15, 20, and 25 meters: ' + line + '\n')
 
-    # meter = 10
-    #
-    # correct_num = torch.sum(torch.le(min_dis, meter))
-    # result = float(correct_num) / float(N_data)
-    # print('top-' + str(topk) + ' within ' + str(meter) + ' meters: ' + str(result * 100))
-    # f.write('top-' + str(topk) + ' within ' + str(meter) + ' meters: ' + str(result * 100) + '\n')
-        ### save the best params
-    # if (result > best_rank_result):
-    #     if not os.path.exists(save_path):
-    #         os.makedirs(save_path)
-    #     torch.save(net_test.state_dict(), os.path.join(save_path, 'Model_best.pth'))
-    #
-    # f.write('top-' + str(args.top_k) + ' within ' + str(meter) + ' meters: ' + str(result * 100) + '\n')
-    # f.close()
+    # Compute top-1 recall at 10m for best model selection
+    topk = 1
+    min_dis = None
+    for j in range(topk):
+        grd_x, grd_y = grd_location_vec[:, 0], grd_location_vec[:, 1]
+        sat_x, sat_y = sat_location_vec1[prediction_id[j, :], 0], sat_location_vec1[prediction_id[j, :], 1]
+        sat_x = sat_x + shift_meters_matrix[prediction_id[j, :], np.arange(0, N_data), 1]
+        sat_y = sat_y + shift_meters_matrix[prediction_id[j, :], np.arange(0, N_data), 0]
+        dis = torch.sqrt((sat_x - grd_x) ** 2 + (sat_y - grd_y) ** 2)
+        if min_dis is not None:
+            min_dis = torch.minimum(min_dis, dis)
+        else:
+            min_dis = dis
 
-    return
+    meter = 10
+    correct_num = torch.sum(torch.le(min_dis, meter))
+    current_result = float(correct_num) / float(N_data)
+
+    # Save the best model
+    if current_result > best_rank_result:
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        torch.save(net_test.state_dict(), os.path.join(save_path, 'Model_best.pth'))
+        print(f'New best model saved! top-1@10m: {current_result*100:.2f}% (previous: {best_rank_result*100:.2f}%)')
+        f.write(f'New best model saved! top-1@10m: {current_result*100:.2f}%\n')
+        f.close()
+        return current_result
+
+    f.close()
+    return best_rank_result
 
 
 def parse_args():

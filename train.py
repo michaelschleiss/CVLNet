@@ -196,14 +196,8 @@ def RankTrain(lr, args, save_path, writer):
             torch.save(net.state_dict(), os.path.join(save_path, 'model_' + str(compNum) + '.pth'))
         # np.save(save_path + 'loss_vec' + np.str(epoch) + 'epoch.npy', loss_vec)
 
-        ### ranking test
-        # current = RankVal(net, get_similarity_fn, args, save_path, bestRankResult)
-        # if (current > bestRankResult):
-        #     bestRankResult = current
-        # np.save(save_path + 'model_' + str(epoch+1) + '.npy', current)
-        #
-        # print('')
-        RankVal(epoch, net, get_similarity_fn, args, save_path, 0.)
+        ### ranking test - track and save best model
+        bestRankResult = RankVal(epoch, net, get_similarity_fn, args, save_path, bestRankResult)
         RankTest1(epoch, net, get_similarity_fn, args, save_path, 0.)
 
     logger.info("Finished Training")
